@@ -153,16 +153,16 @@ Resources:
   # $0/month flat-rate plan for the distribution and its web ACL, activated immediately (only paid tiers need
   # approval). Referencing both makes CloudFormation create it last and cancel it first on delete, since a
   # subscribed distribution can't be deleted. Not taggable.
-  FreePlanSubscription:
-    Type: AWS::PricingPlanManager::Subscription
-    Condition: UseFreePlan
-    Properties:
-      PlanFamily: CloudFront
-      PlanTier: FREE
-      UsageLevel: DEFAULT
-      ResourceArns:
-        - !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}
-        - !GetAtt WebAcl.Arn
+  # FreePlanSubscription:
+  #   Type: AWS::PricingPlanManager::Subscription
+  #   Condition: UseFreePlan
+  #   Properties:
+  #     PlanFamily: CloudFront
+  #     PlanTier: FREE
+  #     UsageLevel: DEFAULT
+  #     ResourceArns:
+  #       - !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}
+  #       - !GetAtt WebAcl.Arn
 
   SiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -222,8 +222,8 @@ Outputs:
     Value: !GetAtt Distribution.DomainName
   DistributionId:
     Value: !Ref Distribution
-  PricingPlan:
-    Description: CloudFront pricing of the distribution.
-    Value: !If [UseFreePlan, !Sub "FREE (${FreePlanSubscription.Status})", PAY_AS_YOU_GO]
+  # PricingPlan:
+  #   Description: CloudFront pricing of the distribution.
+  #   Value: !If [UseFreePlan, !Sub "FREE (${FreePlanSubscription.Status})", PAY_AS_YOU_GO]
   BucketName:
     Value: !Ref SiteBucket
