@@ -1,12 +1,11 @@
 import { Navigate, Route, Routes } from "react-router"
-
+import { HostedLoginPage } from "@/pages/HostedLoginPage"
 import { RedirectIfSignedIn, RequireAuth } from "@/components/auth/RequireAuth"
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage"
 import { ConfirmPage } from "@/pages/ConfirmPage"
 import { HomePage } from "@/pages/HomePage"
 import { LoginPage } from "@/pages/LoginPage"
 import { SignUpPage } from "@/pages/SignUpPage"
-
 export default function App() {
   return (
     <Routes>
@@ -23,6 +22,14 @@ export default function App() {
         element={
           <RedirectIfSignedIn>
             <SignUpPage />
+          </RedirectIfSignedIn>
+        }
+      />
+      <Route
+        path="/login"
+        element={
+          <RedirectIfSignedIn>
+            <HostedLoginPage />
           </RedirectIfSignedIn>
         }
       />

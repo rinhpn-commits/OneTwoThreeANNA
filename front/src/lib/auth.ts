@@ -185,16 +185,24 @@ export async function resendCode(email: string): Promise<void> {
 }
 
 // --- Google (Hosted UI, authorization code + PKCE) ---
+// --- Hosted UI / managed login (authorization code + PKCE): password and Google ---
 
 const PKCE_KEY = "meetings.pkce"
 export const callbackUrl = () => `${window.location.origin}/auth/callback`
+export const hostedUiEnabled = () => authEnabled() && Boolean(authConfig().domain)
 
 function base64Url(bytes: ArrayBuffer | Uint8Array): string {
   const binary = String.fromCharCode(...new Uint8Array(bytes))
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
 
-export async function startGoogleSignIn(): Promise<void> {
+/**
+ * Sends the browser to Cognito's sign-in page. Without `provider` that page offers email +
+ * password and "Continue with Google"; with "Google" it skips the page and goes to Google.
+ * The state and the PKCE verifier are saved here before the redirect, so the login has to
+ * start in this app (a hand-copied Cognito URL comes back with no matching state).
+ */
+export async function startHostedSignIn(provider?: "Google"): Promise<void> {
   const { clientId, domain } = authConfig()
   const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)))
   const state = base64Url(crypto.getRandomValues(new Uint8Array(16)))
@@ -203,7 +211,6 @@ export async function startGoogleSignIn(): Promise<void> {
   )
   sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state }))
   const params = new URLSearchParams({
-    identity_provider: "Google",
     response_type: "code",
     client_id: clientId,
     redirect_uri: callbackUrl(),
@@ -212,9 +219,26 @@ export async function startGoogleSignIn(): Promise<void> {
     code_challenge_method: "S256",
     code_challenge: challenge,
   })
+  if (provider) params.set("identity_provider", provider)
   window.location.assign(`https://${domain}/oauth2/authorize?${params}`)
 }
 
+/** The "Continue with Google" button on our own pages (GoogleButton keeps using this name). */
+export const startGoogleSignIn = () => startHostedSignIn("Google")
+
+/**
+ * Cognito's own sign-out. Clearing the local session is not enough: Cognito keeps a cookie, and
+ * the next sign-in would silently succeed. null when the Hosted UI is not configured.
+ */
+export function hostedLogoutUrl(): string | null {
+  if (!hostedUiEnabled()) return null
+  const { clientId, domain } = authConfig()
+  const params = new URLSearchParams({
+    client_id: clientId,
+    logout_uri: `${window.location.origin}/`,
+  })
+  return `https://${domain}/logout?${params}`
+}
 /** Exchanges the code from the Hosted UI redirect for tokens. */
 export async function completeOAuthSignIn(code: string, state: string): Promise<void> {
   const { clientId, domain } = authConfig()
@@ -239,7 +263,7 @@ export async function completeOAuthSignIn(code: string, state: string): Promise<
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok)
-    throw new AuthError(data.error ?? "TokenError", "Google sign-in failed, try again")
+      throw new AuthError(data.error ?? "TokenError", "Sign-in failed, try again")
   saveTokens({
     IdToken: data.id_token,
     RefreshToken: data.refresh_token,

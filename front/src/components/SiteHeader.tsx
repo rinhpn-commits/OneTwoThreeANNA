@@ -3,8 +3,7 @@ import { CalendarDays, LogOut, Plus } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
 import { useMe } from "@/hooks/useMe"
-import { signOut } from "@/lib/auth"
-
+import { hostedLogoutUrl, signOut } from "@/lib/auth"
 interface SiteHeaderProps {
   onNewMeeting: () => void
 }
@@ -17,7 +16,10 @@ export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
   const handleSignOut = () => {
     signOut()
     queryClient.clear()
-    navigate("/", { replace: true })
+    // End the Cognito session too, otherwise /login/ would sign the user straight back in.
+    const logoutUrl = hostedLogoutUrl()
+    if (logoutUrl) window.location.assign(logoutUrl)
+    else navigate("/", { replace: true })
   }
 
   return (
@@ -54,10 +56,10 @@ export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
           <span className="h-8 w-px bg-white/30" />
           {me && (
             <span
-              className="hidden max-w-48 truncate text-sm text-white/90 lg:inline"
+              className="hidden max-w-48 truncate text-sm text-white/90 sm:inline"
               title={me.email}
             >
-              {me.name ?? me.email}
+              {me.email}
             </span>
           )}
           <button
