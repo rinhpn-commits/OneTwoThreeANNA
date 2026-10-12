@@ -366,3 +366,50 @@ help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make \033[36m<target>\033[0m\n"} \
 	  /^[a-zA-Z_.-]+:.*?##/ { printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2 } \
 	  /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
+
+
+
+##@ AWS weekly report (EventBridge Scheduler + SQS + Lambda + S3 + SES)
+
+REPORTS_STACK    := $(PROJECT)-reports
+REPORTS_MODE     ?= queue
+REPORTS_SCHEDULE ?= cron(0 7 ? * MON *)
+reports_output   = $(call stack_output,$(REPORTS_STACK),$(1))
+backend_resource = $(shell $(AWS_SHELL) cloudformation describe-stack-resources --stack-name $(BACKEND_STACK) \
+                     --query "StackResources[?LogicalResourceId=='$(1)'].PhysicalResourceId" --output text 2>/dev/null)
+BACKEND_IMAGE    = $(shell $(AWS_SHELL) lambda get-function --function-name $(BACKEND_FUNCTION) \
+                     --query Code.ImageUri --output text 2>/dev/null)
+
+.PHONY: aws-reports-deploy
+aws-reports-deploy: aws-check ## Deploy the weekly report stack (REPORTS_MODE=direct|queue, REPORTS_SCHEDULE=..., FAIL_WEEK=...)
+	$(call clear_failed_stack,$(REPORTS_STACK))
+	@test -n "$(REPORT_DOMAIN)" -a -n "$(REPORT_RECIPIENT)" || { echo "Set REPORT_DOMAIN and REPORT_RECIPIENT in .env"; exit 1; }
+	@test -n "$(BACKEND_IMAGE)" || { echo "Backend not deployed: run \`make aws-backend-deploy\` first"; exit 1; }
+	aws cloudformation deploy --stack-name $(REPORTS_STACK) --template-file infra/reports.yaml \
+	  --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset --tags $(STACK_TAGS) \
+	  --parameter-overrides ProjectName=$(PROJECT) ImageUri=$(BACKEND_IMAGE) Architecture=$(LAMBDA_ARCH) \
+	    VpcId=$(call backend_resource,Vpc) \
+	    "PrivateSubnetIds=$(call backend_resource,PrivateSubnet1),$(call backend_resource,PrivateSubnet2)" \
+	    SecurityGroupId=$(call backend_resource,BackendSecurityGroup) \
+	    DbHost=$(call backend_output,DbEndpoint) DbSecretArn=$(call backend_output,DbSecretArn) \
+	    SesDomain=$(REPORT_DOMAIN) RecipientEmail=$(REPORT_RECIPIENT) \
+	    "ScheduleExpression=$(REPORTS_SCHEDULE)" ScheduleMode=$(REPORTS_MODE) "FailWeek=$(FAIL_WEEK)"
+
+.PHONY: aws-reports-outputs
+aws-reports-outputs: ## Show the report stack outputs (bucket, queue, DKIM records)
+	@aws cloudformation describe-stacks --stack-name $(REPORTS_STACK) --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output text
+
+.PHONY: report-now
+report-now: ## Build a report on demand: make report-now WEEK=2026-W39
+	@test -n "$(WEEK)" || { echo "Usage: make report-now WEEK=2026-W39"; exit 1; }
+	aws sqs send-message --queue-url "$(call reports_output,QueueUrl)" \
+	  --message-body '{"week": "$(WEEK)", "source": "make"}'
+
+.PHONY: aws-reports-ls
+aws-reports-ls: ## List the saved reports
+	aws s3 ls s3://$(call reports_output,BucketName)/reports/ --recursive
+
+.PHONY: aws-reports-logs
+aws-reports-logs: ## Last hour of the builder and mailer logs
+	aws logs tail /aws/lambda/$(PROJECT)-report-builder --since 1h
+	aws logs tail /aws/lambda/$(PROJECT)-report-mailer --since 1h
