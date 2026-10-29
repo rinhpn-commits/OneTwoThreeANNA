@@ -25,6 +25,13 @@ export function useUpdateMeeting() {
   })
 }
 
+export function useSaveAgenda() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: api.saveAgenda,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: meetingsKey }),
+  })
+}
 /** Removes the row immediately and restores it if the request fails. */
 export function useDeleteMeeting() {
   const queryClient = useQueryClient()

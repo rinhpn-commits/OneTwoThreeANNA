@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Meetings App - agenda parser. A Lambda function outside the VPC turns pasted text into a
+  structured agenda with an LLM from OpenAI. It needs no database and never writes anything.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: meetings
+  ImageUri:
+    Type: String
+    Description: "The backend image, run with a different handler."
+  Architecture:
+    Type: String
+    Default: arm64
+    AllowedValues: [arm64, x86_64]
+  ParserBackend:
+    Type: String
+    Default: openai
+    AllowedValues: [openai, fake]
+  ParserModel:
+    Type: String
+    Default: gpt-5.4-mini
+  ParserEffort:
+    Type: String
+    Default: ""
+  OpenAiKeyParam:
+    Type: String
+    Default: /meetings/openai-api-key
+    Description: "SSM SecureString parameter that holds the OpenAI API key."
+  AllowedOrigins:
+    Type: CommaDelimitedList
+    Description: "Browser origins allowed to call the parser (the site and localhost)."
+  CognitoUserPoolId:
+    Type: String
+  CognitoClientId:
+    Type: String
+  CognitoJwks:
+    Type: String
+  MaxTextChars:
+    Type: Number
+    Default: 10000
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+
+Resources:
+  ParserLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProjectName}-agenda-parser
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: PROJECT_NAME
+          Value: !Ref ProjectName
+
+  # The only AWS permission the parser needs: reading one parameter. No database.
+  ParserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Tags:
+        - Key: PROJECT_NAME
+          Value: !Ref ProjectName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-openai-key
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OpenAiKeyParam}
+
+  ParserFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-agenda-parser
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command: [app.ai.agenda_lambda.handler]
+      Architectures: [!Ref Architecture]
+      MemorySize: 512
+      Timeout: 60
+      Role: !GetAtt ParserRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref ParserLogGroup
+      Environment:
+        Variables:
+          PARSER_BACKEND: !Ref ParserBackend
+          PARSER_MODEL: !Ref ParserModel
+          PARSER_EFFORT: !Ref ParserEffort
+          OPENAI_API_KEY_PARAM: !Ref OpenAiKeyParam
+          MAX_TEXT_CHARS: !Ref MaxTextChars
+          COGNITO_REGION: !Ref AWS::Region
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          COGNITO_JWKS: !Ref CognitoJwks
+      Tags:
+        - Key: PROJECT_NAME
+          Value: !Ref ProjectName
+
+  # No VpcConfig: the parser needs no database. It reaches the internet without a NAT gateway.
+  ParserFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref ParserFunction
+      AuthType: NONE
+      Cors:
+        AllowOrigins: !Ref AllowedOrigins
+        AllowMethods: [POST]
+        AllowHeaders: [content-type, authorization]
+        MaxAge: 3600
+
+  ParserUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ParserFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  ParserInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ParserFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  ParserUrl:
+    Value: !GetAtt ParserFunctionUrl.FunctionUrl
+  ParserFunctionName:
+    Value: !Ref ParserFunction
+  ParserLogGroupName:
+    Value: !Ref ParserLogGroup

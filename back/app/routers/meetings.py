@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
+from app.agenda_schema import AgendaSave
 from app.auth import get_current_user
 from app.db import get_db
 from app.models import User
@@ -37,6 +38,23 @@ def update_meeting(
     user: User = Depends(get_current_user),
 ):
     return service.update_meeting(db, meeting_id, data, user)
+
+
+@router.put("/{meeting_id}/agenda", response_model=MeetingRead)
+def save_agenda(
+    meeting_id: UUID,
+    data: AgendaSave,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # get_meeting is the same lookup as GET: another user's meeting is a 404.
+    meeting = service.get_meeting(db, meeting_id, user)
+    meeting.agenda = data.agenda.model_dump(mode="json")
+    # What the model suggested, kept next to the final agenda. A hand-typed agenda has none.
+    meeting.ai_suggestion = data.ai_suggestion.model_dump(mode="json") if data.ai_suggestion else None
+    db.commit()
+    db.refresh(meeting)
+    return meeting
 
 
 @router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)

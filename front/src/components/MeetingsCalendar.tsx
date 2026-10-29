@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Clock,
   ExternalLink,
+  ListChecks,
   MapPin,
   Pencil,
   Trash2,
@@ -58,10 +59,18 @@ function useNow(): Date {
 interface MeetingActions {
   onEdit: (meeting: Meeting) => void
   onDelete: (meeting: Meeting) => void
+  onAgenda: (meeting: Meeting) => void
 }
 
-function MeetingDetails({ meeting, onEdit, onDelete }: { meeting: Meeting } & MeetingActions) {
+function MeetingDetails({
+  meeting,
+  onEdit,
+  onDelete,
+  onAgenda,
+}: { meeting: Meeting } & MeetingActions) {
   const start = new Date(meeting.starts_at)
+  const agendaItems = meeting.agenda?.items ?? []
+  const hasAgenda = agendaItems.length > 0 || (meeting.agenda?.action_items.length ?? 0) > 0
   return (
     <div className="space-y-3 text-sm">
       <div className="flex items-start justify-between gap-2">
@@ -117,14 +126,38 @@ function MeetingDetails({ meeting, onEdit, onDelete }: { meeting: Meeting } & Me
           </div>
         </div>
       )}
+      {agendaItems.length > 0 && (
+        <div className="space-y-1">
+          <p className="font-medium">Agenda</p>
+          <ol className="list-decimal space-y-0.5 pl-5">
+            {agendaItems.map((item, index) => (
+              <li key={`${index}-${item.topic}`}>
+                {item.topic}
+                {item.owner && <span className="text-muted-foreground"> · {item.owner}</span>}
+                {item.minutes && (
+                  <span className="text-muted-foreground"> · {item.minutes} min</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      <Button variant="outline" size="sm" onClick={() => onAgenda(meeting)}>
+        <ListChecks /> {hasAgenda ? "Edit agenda" : "Add agenda"}
+      </Button>
     </div>
   )
 }
 
-function MeetingBlock({ segment, onEdit, onDelete }: { segment: DaySegment } & MeetingActions) {
+function MeetingBlock({
+  segment,
+  onEdit,
+  onDelete,
+  onAgenda,
+}: { segment: DaySegment } & MeetingActions) {
   const [open, setOpen] = useState(false)
   const { meeting, startMin, endMin, column, columns } = segment
-  // Close the details before handing over to the edit or delete dialog.
+  // Close the details before handing over to the edit, delete or agenda dialog.
   const closeThen = (action: (meeting: Meeting) => void) => (m: Meeting) => {
     setOpen(false)
     action(m)
@@ -160,6 +193,7 @@ function MeetingBlock({ segment, onEdit, onDelete }: { segment: DaySegment } & M
           meeting={meeting}
           onEdit={closeThen(onEdit)}
           onDelete={closeThen(onDelete)}
+          onAgenda={closeThen(onAgenda)}
         />
       </PopoverContent>
     </Popover>
@@ -176,6 +210,7 @@ export function MeetingsCalendar({
   meetings,
   onEdit,
   onDelete,
+  onAgenda,
   onCreateAt,
 }: MeetingsCalendarProps) {
   const [view, setView] = useState<CalendarView>(initialView)
@@ -320,6 +355,7 @@ export function MeetingsCalendar({
                       segment={segment}
                       onEdit={onEdit}
                       onDelete={onDelete}
+                      onAgenda={onAgenda}
                     />
                   ))}
 

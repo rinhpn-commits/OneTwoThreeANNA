@@ -253,7 +253,8 @@ aws-frontend-publish: ## Build the SPA with VITE_API_URL=<function URL>, upload 
 	(cd front && npm ci --no-audit --no-fund && VITE_API_URL="$$api" \
 	  VITE_COGNITO_REGION=$(AWS_REGION) VITE_COGNITO_USER_POOL_ID=$(COGNITO_POOL_ID) \
 	  VITE_COGNITO_CLIENT_ID=$(COGNITO_CLIENT) VITE_COGNITO_DOMAIN=$(call cognito_output,HostedUiDomain) \
-	  VITE_COGNITO_GOOGLE=$(call cognito_output,GoogleEnabled) npm run build) && \
+	  VITE_COGNITO_GOOGLE=$(call cognito_output,GoogleEnabled) \
+	  VITE_PARSER_URL=$(call ai_output,ParserUrl) npm run build) && \
 	aws s3 sync front/dist "s3://$$bucket" --delete --exclude index.html \
 	  --cache-control "public,max-age=31536000,immutable" && \
 	aws s3 cp front/dist/index.html "s3://$$bucket/index.html" --cache-control "no-cache" && \
@@ -413,3 +414,57 @@ aws-reports-ls: ## List the saved reports
 aws-reports-logs: ## Last hour of the builder and mailer logs
 	aws logs tail /aws/lambda/$(PROJECT)-report-builder --since 1h
 	aws logs tail /aws/lambda/$(PROJECT)-report-mailer --since 1h
+
+
+# PARSER_MODEL ?= amazon.nova-micro-v1:0
+# .PHONY: llm-hello
+# llm-hello: ## First call to Claude on Bedrock from your laptop
+# 	PARSER_MODEL=$(PARSER_MODEL) .venv/bin/python scripts/llm_hello.py
+# .PHONY: parse
+# parse: ## Parse text or a file from your laptop: make parse TEXT=tests/agenda_inputs/1_uk.txt
+# 	@test -n "$(TEXT)" || { echo 'Usage: make parse TEXT="..." or TEXT=path/to/file'; exit 1; }
+# 	PARSER_MODEL=$(PARSER_MODEL) .venv/bin/python scripts/parse.py "$(TEXT)"
+##@ AI: paste an agenda
+
+PARSER_MODEL     ?= gpt-5.4-mini
+PARSER_BACKEND   ?= openai
+PARSER_EFFORT    ?=
+OPENAI_KEY_PARAM ?= /meetings/openai-api-key
+AI_STACK         := $(PROJECT)-ai
+ai_output         = $(call stack_output,$(AI_STACK),$(1))
+parser_env        = PARSER_BACKEND=$(PARSER_BACKEND) PARSER_MODEL=$(PARSER_MODEL) PARSER_EFFORT=$(PARSER_EFFORT)
+
+.PHONY: llm-hello
+llm-hello: ## First call to the model from your laptop
+	PARSER_MODEL=$(PARSER_MODEL) .venv/bin/python scripts/llm_hello.py
+
+.PHONY: llm-models
+llm-models: ## List the models your OpenAI key can use
+	.venv/bin/python scripts/llm_models.py
+
+.PHONY: parse
+parse: ## Parse text or a file from your laptop: make parse TEXT=tests/agenda_inputs/1_uk.txt
+	@test -n "$(TEXT)" || { echo 'Usage: make parse TEXT="..." or TEXT=path/to/file'; exit 1; }
+	$(parser_env) .venv/bin/python scripts/parse.py "$(TEXT)"
+
+.PHONY: aws-ai-deploy
+aws-ai-deploy: aws-check ## Deploy the agenda parser stack (run aws-backend-deploy first: it carries the code)
+	$(call clear_failed_stack,$(AI_STACK))
+	@test -n "$(BACKEND_IMAGE)" || { echo "Backend not deployed: run \`make aws-backend-deploy\` first"; exit 1; }
+	@aws ssm get-parameter --name $(OPENAI_KEY_PARAM) --query Parameter.Name --output text >/dev/null || { echo "Save the key first: aws ssm put-parameter --name $(OPENAI_KEY_PARAM) --type SecureString --value ..."; exit 1; }
+	jwks=$$(curl -fsS "$(call cognito_output,Issuer)/.well-known/jwks.json") && \
+	aws cloudformation deploy --stack-name $(AI_STACK) --template-file infra/ai.yml \
+	  --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset --tags $(STACK_TAGS) \
+	  --parameter-overrides ProjectName=$(PROJECT) ImageUri=$(BACKEND_IMAGE) Architecture=$(LAMBDA_ARCH) \
+	    ParserBackend=$(PARSER_BACKEND) ParserModel=$(PARSER_MODEL) "ParserEffort=$(PARSER_EFFORT)" \
+	    OpenAiKeyParam=$(OPENAI_KEY_PARAM) \
+	    "AllowedOrigins=$(CORS_ORIGINS_AWS),http://localhost:3000,http://localhost:5173" \
+	    CognitoUserPoolId=$(COGNITO_POOL_ID) CognitoClientId=$(COGNITO_CLIENT) "CognitoJwks=$$jwks"
+
+.PHONY: aws-ai-outputs
+aws-ai-outputs: ## Show the parser stack outputs (the function URL)
+	@aws cloudformation describe-stacks --stack-name $(AI_STACK) --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output text
+
+.PHONY: aws-ai-logs
+aws-ai-logs: ## Last hour of the parser logs
+	aws logs tail /aws/lambda/$(PROJECT)-agenda-parser --since 1h

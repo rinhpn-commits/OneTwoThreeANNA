@@ -21,6 +21,7 @@ export interface Meeting {
   owner_id: string | null
   participants: Participant[]
   created_at: string
+  agenda?: Agenda | null
 }
 
 export interface MeetingCreate {
@@ -43,4 +44,39 @@ export interface ValidationIssue {
   loc: (string | number)[]
   msg: string
   type: string
+}
+export interface AgendaItem {
+  topic: string
+  owner: string | null
+  minutes: number | null
+}
+
+export interface ActionItem {
+  task: string
+  owner: string | null
+  due: string | null
+}
+
+export interface Agenda {
+  items: AgendaItem[]
+  action_items: ActionItem[]
+}
+
+export interface ParsedAgenda extends Agenda {
+  title: string | null
+  starts_at: string | null
+  duration_minutes: number | null
+  language: string
+}
+
+/** What the parser returns; the same shape is stored as ai_suggestion. */
+export interface ParseResult {
+  agenda: ParsedAgenda
+  model: string
+  prompt_version: string
+}
+
+export interface AgendaSave {
+  agenda: Agenda
+  ai_suggestion: ParseResult | null
 }
