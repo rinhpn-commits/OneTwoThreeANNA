@@ -11,7 +11,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-
+from app.agenda_schema import Agenda
 
 def _blank_to_none(value: object) -> object:
     if isinstance(value, str) and not value.strip():
@@ -100,3 +100,4 @@ class MeetingRead(BaseModel):
     owner_id: UUID | None
     participants: list[ParticipantRead]
     created_at: datetime
+    agenda: Agenda | None = None

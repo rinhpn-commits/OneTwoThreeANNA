@@ -6,6 +6,7 @@ import type {
   ParticipantCreate,
   User,
   ValidationIssue,
+  AgendaSave,
 } from "@/types"
 
 export class ApiError extends Error {
@@ -75,6 +76,8 @@ export const api = {
     request<Meeting>(`/meetings/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteMeeting: (id: string) => request<void>(`/meetings/${id}`, { method: "DELETE" }),
 
+  saveAgenda: ({ id, data }: { id: string; data: AgendaSave }) =>
+    request<Meeting>(`/meetings/${id}/agenda`, { method: "PUT", body: JSON.stringify(data) }),
   listParticipants: (q = "") =>
     request<Participant[]>(`/participants${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   createParticipant: (data: ParticipantCreate) =>

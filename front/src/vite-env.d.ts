@@ -14,4 +14,5 @@ interface ImportMetaEnv {
 
 interface ImportMeta {
   readonly env: ImportMetaEnv
+  readonly VITE_PARSER_URL?: string
 }

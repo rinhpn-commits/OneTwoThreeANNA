@@ -65,6 +65,8 @@ Resources:
   # permission needs the bucket ARN. Built from the name, there is no circular dependency.
   ReportsBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     DependsOn: MailerS3Permission
     Properties:
       BucketName: !Sub ${ProjectName}-reports-${AWS::AccountId}
@@ -96,6 +98,8 @@ Resources:
   # the builder's PutObject hangs until the timeout (no NAT, no route to S3).
   ReportsRouteTable:
     Type: AWS::EC2::RouteTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       VpcId: !Ref VpcId
       Tags:
@@ -105,18 +109,24 @@ Resources:
 
   RouteTableAssociation1:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       RouteTableId: !Ref ReportsRouteTable
       SubnetId: !Select [0, !Ref PrivateSubnetIds]
 
   RouteTableAssociation2:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       RouteTableId: !Ref ReportsRouteTable
       SubnetId: !Select [1, !Ref PrivateSubnetIds]
 
   S3GatewayEndpoint:
     Type: AWS::EC2::VPCEndpoint
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       VpcId: !Ref VpcId
       ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
@@ -126,6 +136,8 @@ Resources:
   # ===================== Queue + dead-letter queue =====================
   ReportRequestsDlq:
     Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       QueueName: !Sub ${ProjectName}-report-requests-dlq
       MessageRetentionPeriod: 1209600
@@ -137,6 +149,8 @@ Resources:
   # visible again while the first attempt still runs, and a second builder would start on it.
   ReportRequestsQueue:
     Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       QueueName: !Sub ${ProjectName}-report-requests
       VisibilityTimeout: 360
@@ -150,6 +164,8 @@ Resources:
   # ===================== Builder (in the VPC) =====================
   BuilderRole:
     Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Tags:
         - Key: PROJECT_NAME
@@ -174,6 +190,8 @@ Resources:
 
   BuilderLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub /aws/lambda/${ProjectName}-report-builder
       RetentionInDays: !Ref LogRetentionDays
@@ -183,6 +201,8 @@ Resources:
 
   BuilderFunction:
     Type: AWS::Lambda::Function
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       FunctionName: !Sub ${ProjectName}-report-builder
       PackageType: Image
@@ -215,6 +235,8 @@ Resources:
 
   BuilderQueueMapping:
     Type: AWS::Lambda::EventSourceMapping
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       EventSourceArn: !GetAtt ReportRequestsQueue.Arn
       FunctionName: !Ref BuilderFunction
@@ -223,6 +245,8 @@ Resources:
   # ===================== Schedule =====================
   SchedulerRole:
     Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Tags:
         - Key: PROJECT_NAME
@@ -247,6 +271,8 @@ Resources:
 
   ReportSchedule:
     Type: AWS::Scheduler::Schedule
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Name: !Sub ${ProjectName}-weekly-report
       ScheduleExpression: !Ref ScheduleExpression
@@ -262,6 +288,8 @@ Resources:
   # ===================== Mailer (outside the VPC) =====================
   MailerRole:
     Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Tags:
         - Key: PROJECT_NAME
@@ -288,6 +316,8 @@ Resources:
 
   MailerLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub /aws/lambda/${ProjectName}-report-mailer
       RetentionInDays: !Ref LogRetentionDays
@@ -297,6 +327,8 @@ Resources:
 
   MailerFunction:
     Type: AWS::Lambda::Function
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       FunctionName: !Sub ${ProjectName}-report-mailer
       PackageType: Image
@@ -330,6 +362,8 @@ Resources:
   # ===================== SES =====================
   DomainIdentity:
     Type: AWS::SES::EmailIdentity
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       EmailIdentity: !Ref SesDomain
       Tags:
@@ -338,6 +372,8 @@ Resources:
 
   RecipientIdentity:
     Type: AWS::SES::EmailIdentity
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       EmailIdentity: !Ref RecipientEmail
       Tags:

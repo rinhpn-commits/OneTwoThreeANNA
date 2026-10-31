@@ -262,8 +262,7 @@ export async function completeOAuthSignIn(code: string, state: string): Promise<
     }),
   })
   const data = await response.json().catch(() => ({}))
-  if (!response.ok)
-      throw new AuthError(data.error ?? "TokenError", "Sign-in failed, try again")
+  if (!response.ok) throw new AuthError(data.error ?? "TokenError", "Sign-in failed, try again")
   saveTokens({
     IdToken: data.id_token,
     RefreshToken: data.refresh_token,

@@ -80,7 +80,7 @@ verifies the ID token's signature, issuer, audience and expiry against the pool'
 stores the user in the `users` table (keyed by the token's `sub`), where extra profile data lives.
 
 ```bash
-make aws-cognito-deploy   # user pool + app client + Hosted UI domain; prints the lines for .env
+make aws-cognito-env   # prints the .env lines (Cognito itself is Terraform: infra/auth.tf)
 make aws-cognito-env      # print them again
 ```
 
@@ -90,7 +90,7 @@ every request acts as one local user (`dev@localhost`).
 
 **Google sign-in** (off until configured): create an OAuth client ID (type "Web application") in
 Google Cloud with the redirect URI `https://<COGNITO_DOMAIN>/oauth2/idpresponse`, set
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`, then run `make aws-cognito-deploy` again and
+set `google_client_id` in `infra/terraform.tfvars` and the sensitive `google_client_secret` in the HCP Terraform workspace (never in a file), merge the pull request so HCP applies it, then run `make aws-cognito-env` and
 copy `COGNITO_GOOGLE_ENABLED=true` into `.env`. On AWS, run `make aws-frontend-publish` to rebuild the
 frontend with it. Until then the Google button shows as "coming soon".
 
@@ -143,7 +143,7 @@ Config lives in `back/pyproject.toml` (`[tool.ruff]`), `front/eslint.config.js` 
 
 Everything is deployed to **us-east-1**. CloudFront accepts custom-domain certificates only from that region. Infrastructure is CloudFormation in `infra/`:
 
-- `infra/cognito.yaml`: Cognito user pool (email + password, self sign-up with email code), public app client, Hosted UI domain, and Google as an identity provider when `GOOGLE_CLIENT_ID` is set.
+- `infra/auth.tf (Terraform)`: Cognito user pool (email + password, self sign-up with email code), public app client, Hosted UI domain, and Google as an identity provider when `GOOGLE_CLIENT_ID` is set.
 - `infra/backend-ecr.yaml`: ECR repository for the backend's Lambda container image (`back/Dockerfile.lambda`).
 - `infra/backend.yaml`: VPC with private subnets, Aurora Serverless v2 PostgreSQL (scales to 0 ACU when idle), and a Lambda function with a public **function URL**, which is the backend URL.
 - `infra/frontend.yaml`: private S3 bucket and CloudFront distribution for the SPA on the **flat-rate Free plan** ($0/month, with the WAF web ACL the plan requires), with an optional custom domain.
@@ -171,12 +171,12 @@ flowchart LR
 3. Deploy. The first run takes about 15 minutes, mostly waiting for Aurora and CloudFront:
 
    ```bash
-   make aws-deploy   # = aws-cognito-deploy, aws-backend-deploy, then aws-frontend-deploy
+   make aws-deploy   # = aws-backend-deploy, then aws-frontend-deploy (Cognito, reports and the parser: Terraform, applied by HCP)
    ```
 
    The steps run in this order:
 
-   1. **Cognito** (`make aws-cognito-deploy`): user pool, app client and Hosted UI domain. Redirect URLs cover localhost and the site's origins. It prints the `.env` lines for local use.
+   1. **Cognito** (Terraform, `infra/auth.tf`, applied by HCP Terraform): user pool, app client and Hosted UI domain. Redirect URLs cover localhost and the site's origins. `make aws-cognito-env` prints the `.env` lines for local use.
    2. **Backend** (`make aws-backend-deploy`): ECR stack → build and push the Lambda image → backend stack → `aws-backend-migrate` invokes the function with `{"action": "migrate"}` to run Alembic and seeding. It prints the function URL (`https://<id>.lambda-url.us-east-1.on.aws/`).
    3. **Frontend** (`make aws-frontend-deploy`): frontend stack → `npm run build` with `VITE_API_URL=<function URL>` and the `VITE_COGNITO_*` IDs → upload to S3 and invalidate CloudFront → allow the site's origin in the backend's `CORS_ORIGINS` and as a Cognito redirect URL. It prints the site URL.
 
@@ -200,3 +200,24 @@ make aws-frontend-https-check # 3. curl https://onetwothree.dobosevych.com/
 **Cost.** There is no load balancer, NAT gateway or public IPv4 address. Lambda and function URLs fit in the always-free tier for a small app. CloudFront runs on the flat-rate Free plan, which costs $0 with no overage charges and also covers its WAF web ACL (a per-IP rate limit). Requests that WAF blocks don't count toward the plan's allowance. Aurora Serverless v2 has no free tier. With `DbMinCapacity=0` it pauses after 5 idle minutes, and then you pay only for storage (about $0.10/GB-month). While active it costs about $0.12 per ACU-hour. The first request after a pause waits about 15 seconds while Aurora resumes. The DB credentials secret costs $0.40/month. Run `make aws-destroy` when you are done. It keeps a final Aurora snapshot.
 
 On AWS the backend reads `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` instead of `DATABASE_URL`. The password is generated in Secrets Manager and resolved into the function's environment at deploy time, so the VPC needs no internet access. `DB_NULL_POOL=true` closes connections after each request, because idle connections from warm Lambdas would stop Aurora from pausing. Migrations do not run on cold start. `make aws-backend-migrate` runs them, and every `aws-backend-deploy` calls it.
+
+## Infrastructure as Code (Terraform)
+
+Cognito (`infra/auth.tf`), the weekly report (`infra/reports.tf`) and the agenda parser
+(`infra/ai.tf`) are described in Terraform. The VPC, database, ECR and the frontend are still
+CloudFormation (`infra/backend*.yaml`, `infra/frontend.yaml`).
+
+- **Who applies:** only HCP Terraform (workspace `meetings-dev`, organization `meetings_ooad`),
+  after a pull request is merged into `main`. There is no `terraform apply` in the Makefile.
+- **Change flow:** edit `infra/*.tf` → open a pull request → read the plan in the HCP check →
+  merge → confirm the apply in HCP.
+- **Laptop:** `terraform login`, then `make infra-init`, `make infra-fmt`, `make infra-validate`,
+  `make infra-plan` (a plan only). `make infra-output` shows the IDs the frontend build uses.
+- **Secrets:** the Google client secret is a sensitive workspace variable, not a file. Other
+  values are in `infra/terraform.tfvars`. The OpenAI key lives in SSM Parameter Store.
+- **Images:** Terraform ignores `image_uri` of the three functions. After
+  `make aws-backend-deploy`, run `make aws-functions-image` to roll the new image out to the
+  report and parser functions.
+- **AWS access of HCP Terraform:** dynamic credentials, an IAM role trusted through OIDC
+  (`TFC_AWS_PROVIDER_AUTH`, `TFC_AWS_RUN_ROLE_ARN`). No access keys are stored in HCP.
+- See `docs/adr/0007-terraform.md` for the decision.
