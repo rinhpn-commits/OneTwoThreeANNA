@@ -1,0 +1,27 @@
+# Non-secret values. The Google client secret is a sensitive variable in the HCP workspace.
+project_name              = "meetings"
+region                    = "us-east-1"
+architecture              = "arm64"
+image_uri                 = "639656019566.dkr.ecr.us-east-1.amazonaws.com/meetings-backend:c98901b-dirty-20261029202221"
+callback_urls             = ["http://localhost:3000/auth/callback", "http://localhost:5173/auth/callback", "https://d135byj6qqyivu.cloudfront.net/auth/callback", "https://annaerial.xyz/auth/callback"]
+logout_urls               = ["http://localhost:3000/", "http://localhost:5173/", "https://d135byj6qqyivu.cloudfront.net/", "https://annaerial.xyz/"]
+google_client_id          = "1030685507947-ihhnn5bppvf7ei4qmosicv1c0i8o3v3v.apps.googleusercontent.com"
+vpc_id                    = "vpc-081561210bb3e87f7"
+private_subnet_ids        = ["subnet-0e6c3cb2062bccfa2", "subnet-0f4f273c640258593"]
+backend_security_group_id = "sg-0cbc6416810d8d79c"
+backend_stack_name        = "meetings-backend"
+ses_domain                = "annaerial.xyz"
+recipient_email           = "anna2008.ring@gmail.com"
+schedule_expression       = "cron(0 7 ? * MON *)"
+schedule_mode             = "queue"
+fail_week                 = ""
+parser_backend            = "openai"
+parser_model              = "gpt-5.4-mini"
+parser_effort             = ""
+openai_key_param          = "/meetings/openai-api-key"
+allowed_origins           = ["http://localhost:3000", "http://localhost:5173", "https://d135byj6qqyivu.cloudfront.net", "https://annaerial.xyz"]
+builder_role_name         = "meetings-reports-BuilderRole-oUQAjcajpWpx"
+mailer_role_name          = "meetings-reports-MailerRole-ek4ZJSQjoPug"
+scheduler_role_name       = "meetings-reports-SchedulerRole-KrwT0EMtiLiK"
+parser_role_name          = "meetings-ai-ParserRole-13rmo5wf282Q"
+log_retention_days = 14
