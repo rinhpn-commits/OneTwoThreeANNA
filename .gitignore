@@ -19,3 +19,7 @@ infra/*.params.env
 tfplan
 crash.log
 generated.tf
+# Terraform local files
+.terraform/
+*.tfstate
+*.tfstate.*

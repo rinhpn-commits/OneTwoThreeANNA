@@ -1,0 +1,103 @@
+# ADR 0008: Running the core of the app on Azure
+
+Status: accepted
+
+## Context
+
+The app runs on AWS and is described in Terraform (ADR 0007). Lab 9 asks what it
+takes to run the same system on another cloud. We move the core (frontend, API,
+database) to Azure for Students. Sign-in, the weekly report and the agenda parser
+stay on AWS. The agenda parser calls OpenAI directly, not Bedrock, so no LLM
+migration is needed.
+
+## Decision
+
+| Piece | On AWS today | On Azure | Decision |
+| --- | --- | --- | --- |
+| Static frontend + CDN | S3 + CloudFront | Azure Static Web Apps (Free plan) | Replace: HTTPS and CDN included |
+| API (FastAPI) | Lambda + function URL | Azure Container Apps | Replace: runs the same Docker image, scales to zero, no Lambda adapter |
+| Image registry | ECR | Azure Container Registry (Basic) | Replace |
+| Database | Aurora Serverless v2 | Azure Database for PostgreSQL Flexible Server, Burstable B1ms | Replace |
+| Secrets | SSM Parameter Store | Azure Key Vault | Replace |
+| Logs | CloudWatch Logs | Log Analytics (Azure Monitor) | Replace |
+| Identity of the API | IAM role | User-assigned managed identity + RBAC | Replace, no stored keys |
+| Infrastructure as code | Terraform aws provider | Terraform azurerm provider, separate azure/ folder and state | Replace |
+| Sign-in | Cognito + Google | Entra External ID | Keep on AWS |
+| Weekly report (scheduler, queue, S3, Lambdas) | EventBridge, SQS, S3, Lambda | Logic Apps / Service Bus / Functions | Keep on AWS |
+| E-mail | SES | Azure Communication Services Email | Keep on AWS (SES) |
+| Agenda parser | Lambda + OpenAI | Container Apps + OpenAI | Keep on AWS |
+| LLM | OpenAI API | OpenAI API (same) | Keep: the provider is not tied to a cloud |
+
+Region: polandcentral.
+
+### The database
+
+We chose PostgreSQL Flexible Server (B1ms). It is the closest match to Aurora
+and keeps the SQL code unchanged. It does not pause on idle like Aurora: it runs
+and bills until stopped (a stopped server keeps billing storage, minimum 32 GiB,
+and Azure starts it again after 7 days).
+
+Alternatives:
+- Cosmos DB (serverless): no instance to keep running, but it is not SQL. Tables,
+  relations and migrations would be rewritten as documents, with the data access
+  code. Not worth it for the saving.
+- Keep Aurora and call it from Azure: no migration, but every request crosses
+  clouds (extra latency, egress cost) and the database would have to be exposed
+  publicly. Rejected.
+
+Data: loaded by running the existing migrations against the empty database,
+(or pg_dump from Aurora and psql into Azure: see the README).
+
+### E-mail
+
+SES stays. The weekly report is not moved, so nothing changes. If it moves later,
+Azure Communication Services Email or a provider such as SendGrid is used, and its
+key goes to Key Vault.
+
+### What we do not move, and why
+
+- Sign-in (Cognito): the API on Azure still verifies Cognito tokens through the
+  public JWKS URL, so it works from any cloud. We only add the Azure frontend URL
+  to the Cognito callback and logout URLs.
+- Weekly report and agenda parser: they depend on several AWS services
+  (EventBridge, SQS, S3 events, SES, Lambda). Moving them is a stretch goal and
+  teaches little that the core move does not already show.
+
+## Consequences
+
+- Two clouds to run and pay for; the cost comparison is in the README / lab table.
+- Cross-cloud calls (Azure API to AWS Cognito JWKS) add a little latency.
+- The database is the main cost on Azure because it does not scale to zero.
+  Stop it when not in use.
+- Lock-in is lowest in compute (a Docker image) and highest in data and in the
+  managed services around it.
+
+## Update: what was actually deployed
+
+### Database
+
+Managed Azure Database for PostgreSQL (Flexible Server) could not be created on the Azure for
+Students subscription: the allowed regions are limited by policy (`RequestDisallowedByAzure`) and the
+B1ms SKU was not available in them (`SkuNotAvailable`). The Container Apps environment is an
+"express" environment, which supports neither TCP ingress between apps, nor several containers in
+one app, nor Key Vault secret references. PostgreSQL therefore runs inside the API container
+(`back/Dockerfile.azure`, listening on `localhost` only).
+
+Consequences: data is not persistent (it is recreated from the Alembic migrations and the seed
+script on every start), the API cannot scale to zero (a cold start would give an empty database),
+and one replica runs all the time. This is acceptable for a lab; for production the database would
+be Azure Database for PostgreSQL Flexible Server, with no change in the application code
+(only `DB_HOST` and `DB_PASSWORD`).
+
+### Frontend
+
+The frontend is served from an Azure Storage account with static website hosting (HTTPS, fallback
+to `index.html` for the single-page app) instead of Azure Static Web Apps, whose regions are not all
+allowed by the subscription policy.
+
+### Secrets
+
+The database password is generated by Terraform (`random_password`) and passed to the Container App
+as an app secret; a copy is stored in Key Vault. It is not in the repository.
+
+Region: polandcentral.

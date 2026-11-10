@@ -221,3 +221,18 @@ CloudFormation (`infra/backend*.yaml`, `infra/frontend.yaml`).
 - **AWS access of HCP Terraform:** dynamic credentials, an IAM role trusted through OIDC
   (`TFC_AWS_PROVIDER_AUTH`, `TFC_AWS_RUN_ROLE_ARN`). No access keys are stored in HCP.
 - See `docs/adr/0007-terraform.md` for the decision.
+## Deploy to Azure (lab 9)
+
+The same app runs on Azure next to AWS. Terraform lives in `azure/` (state in HCP Terraform
+workspace `meetings-azure`, local execution).
+
+- API: Azure Container Apps (`back/Dockerfile.azure`, image from Azure Container Registry).
+- Database: PostgreSQL inside the API container, not persistent (see `docs/adr/0008-azure-service-choices.md`).
+- Frontend: Azure Storage static website.
+- Sign-in stays on AWS Cognito; the API verifies its tokens through the public JWKS.
+
+Build and push the API image: `docker build -f back/Dockerfile.azure -t <acr>.azurecr.io/meetings-api:<tag> back`,
+then `docker push`. Build the frontend with `VITE_API_URL=<api_url>` and upload `front/dist` with
+`az storage blob upload-batch --destination '$web'`.
+
+Stop paying for it: `terraform destroy` in `azure/`.
